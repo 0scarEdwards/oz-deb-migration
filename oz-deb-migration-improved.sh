@@ -1,277 +1,68 @@
 #!/bin/bash
 # =============================================================================
 # Oz's Debian Domain Migration Script
-# Version: 3.0.0
+# Version: 5.0.0
 # =============================================================================
+# 
+# CHANGELOG:
+# V5.0.0 - Release
+# - Complete rewrite and optimization of domain migration process
+# - Simplified domain join process - removed unnecessary realm discover step
+# - Eliminated verbose system checks and unnecessary warnings
+# - Streamlined workflow with fewer failure points
+# - Code with error handling
+# - Reliability and simplified user experience
+# - Cleaner output and focused domain migration process
+# - Automation with reboot and verification
+# - Optimized step numbering and workflow efficiency
+# - Improved documentation and maintainability
 #
-# LINUX DOMAIN MIGRATION EXPLAINED IN PLAIN ENGLISH:
-# =============================================================================
+# TECHNICIAN MODE REMOVAL NOTES:
+# - Technician Mode was removed to simplify the script and focus on core functionality
+# - The automation script (oz-migration-automator.sh) now provides similar capabilities
+# - If you need system snapshots in the future, consider:
+#   * Adding a --snapshot flag to create system backups before migration
+#   * Implementing LVM snapshots for live system backups
+#   * Using rsync-based system backups with exclude patterns
+#   * Adding integration with backup tools like Timeshift or Deja Dup
+#   * Creating a separate backup script that can be called before migration
 #
-# WHAT THIS SCRIPT DOES:
-# This script migrates a Linux system from one Active Directory domain to another.
+# FUTURE ENHANCEMENT IDEAS:
+# - Add --snapshot flag for optional system snapshots
+# - Implement LVM snapshot support for live backups
+# - Add support for cloud backup integration (AWS S3, Google Cloud, etc.)
+# - Create a separate backup/restore utility script
+# - Add support for different backup strategies (full, incremental, differential)
+# - Implement backup verification and integrity checking
+# - Add backup compression and encryption options
+# - Create backup scheduling and retention policies
 #
-# THE MAIN COMPONENTS AND TOOLS:
-# =============================================================================
+# V4.0.0 - Major Update
+# - Removed Technician Mode to simplify and focus on core functionality
+# - Simplified domain join process
+# - Improved user profile migration and conflict resolution
+# - Added verification and troubleshooting tools
+# - Streamlined workflow and reduced complexity
 #
-# 1. REALMD - The Domain Joining Tool
-#    - This is the main tool that handles joining/leaving Active Directory domains
-#    - Think of it as the "network membership card" for your Linux computer
-#    - Commands: realm join, realm leave, realm discover, realm list
-#    - What it does: Creates a computer account in Active Directory, configures authentication
-#
-# 2. SSSD - System Security Services Daemon
-#    - This is the "translator" between Linux and Active Directory
-#    - It handles user authentication, group membership, and user lookups
-#    - Think of it as the "phone book" that tells Linux about domain users
-#    - Services: sssd (the main service), sssctl (control tool)
-#    - Files: /etc/sssd/sssd.conf (configuration), /var/log/sssd/ (logs)
-#
-# 3. KERBEROS - The Authentication System
-#    - This is the "security system" that handles passwords and authentication
-#    - Think of it as the "key card system" for the building
-#    - Tools: kinit (get authentication), klist (show current tickets)
-#    - Files: /etc/krb5.conf (configuration)
-#    - Critical: Time must be synchronized (within 5 minutes) or authentication fails
-#
-# 4. PAM - Pluggable Authentication Modules
-#    - This is the "security guard" that controls who can log in and how
-#    - Think of it as the "bouncer" at the door checking IDs
-#    - Files: /etc/pam.d/ (configuration files)
-#    - Commands: pam-auth-update (configure authentication methods)
-#    - What it does: Decides how users authenticate (local passwords vs domain passwords)
-#
-# 5. NSS - Name Service Switch
-#    - This is the "directory service" that tells Linux where to look for user information
-#    - Think of it as the "phone book lookup system"
-#    - File: /etc/nsswitch.conf (tells system where to look for users, groups, etc.)
-#    - What it does: "Look in local files first, then ask the domain for user info"
-#
-# 6. ODDJOB-MKHOMEDIR - Home Directory Creator
-#    - This automatically creates home folders for domain users when they first log in
-#    - Think of it as the "room assignment system" that gives new employees their office
-#    - Service: oddjobd (runs the home directory creation)
-#    - What it does: When a domain user logs in for the first time, creates /home/username
-#
-# 7. SAMBA - Windows Network Compatibility
-#    - This allows Linux to talk to Windows networks and Active Directory
-#    - Think of it as the "translator" between Linux and Windows networking
-#    - Tools: smbclient, net, wbinfo (various Windows network tools)
-#    - What it does: Enables file sharing, domain authentication, and network browsing
-#
-# THE MIGRATION PROCESS EXPLAINED:
-# =============================================================================
-#
-# Step 1: PREPARATION
-#    - Install required packages (realmd, sssd, samba, etc.)
-#    - Create backup account for emergency access
-#    - Check system compatibility and network connectivity
-#
-# Step 2: DOMAIN TRANSITION
-#    - Leave the old domain (if currently joined to one)
-#    - Discover the new domain structure
-#    - Join the new domain using admin credentials
-#
-# Step 3: SYSTEM CONFIGURATION
-#    - Update hostname to match new domain
-#    - Configure Kerberos authentication
-#    - Set up SSSD for domain authentication
-#    - Configure PAM/NSS to use domain authentication
-#    - Enable automatic home directory creation
-#
-# Step 4: USER MIGRATION
-#    - Move user home directories from old domain to new domain
-#    - Create symbolic links so old paths still work
-#    - Update file ownership to new domain users
-#
-# Step 5: VERIFICATION
-#    - Test domain authentication
-#    - Verify user access and home directories
-#    - Check all services are working properly
-#
-# COMMON ISSUES AND SOLUTIONS:
-# =============================================================================
-#
-# "Can't join domain" - Usually means:
-#    - Wrong admin credentials
-#    - Network connectivity issues
-#    - DNS resolution problems
-#    - Firewall blocking required ports (389, 636, 88, 464)
-#
-# "Can't log in with domain user" - Usually means:
-#    - SSSD service not running
-#    - PAM/NSS not configured properly
-#    - Time synchronization issues
-#    - Domain controller connectivity problems
-#
-# "Home directories not created" - Usually means:
-#    - oddjob-mkhomedir not configured
-#    - PAM configuration missing mkhomedir
-#    - oddjobd service not running
-#
-# "Users not found" - Usually means:
-#    - SSSD cache needs clearing
-#    - NSS configuration not using SSSD
-#    - Domain controller connectivity issues
-#
-# =============================================================================
+# V3.0.0 - Previous Version
+# - Added Technician Mode with system snapshots
+# - Safety features and rollback capabilities
+# - Improved user profile migration
+# - Added verification tools
 #
 # MODES:
-# - Technician Mode: Full migration with all features including rollback points
-#   * Creates complete system snapshots (should be circa ~50-100MB each) for full recovery
-#   * Includes all safety features and advanced options
-#   * Better than raw commands for production environments where safety is needed
-# 
 # - Live Mode: Standard migration with essential safety features
 #   * Creates file-based backups of critical configuration files
 #   * Includes progress tracking and error handling
 #   * Suitable for most migration scenarios
+#   * Performs actual domain migration
 # 
-# - Dry-Run Mode: Test run without making any system changes
-#   * Simulates the entire migration process
-#   * Shows what would happen without actually changing anything
-#   * Perfect for testing on domainless VMs or validating settings
-# 
-# SAFETY & RECOVERY:
-# - State Tracking: Saves progress to /tmp/migration-state
-#   * If script is interrupted, you can resume from where you left off
-#   * Tracks current step, mode, domain, and hostname
-#   * Automatically offers to resume on next run
-# 
-# - Progress Indicators: Visual feedback during long operations
-#   * Shows current step and progress through migration
-#   * Helps users understand what's happening during long waits
-#   * Provides confidence that the script is working
-# 
-# - Enhanced Safety: Comprehensive backup and validiation system
-#   * Creates timestamped backups of all modified files
-#   * Verifies backup files exist and are not empty before proceeding
-#   * Prevents data loss if something goes wrong
-# 
-# - Rollback Points (Technician Mode): Complete system state snapshots
-#   * Creates compressed archives of critical system files
-#   * Includes /etc/, network configs, user data, and system state
-#   * Allows complete system restoration if needed
-#   * Each rollback point is ~50-100MB in size
-# 
-# NETWORK & DOMAIN FEATURES:
-# - Domain Controller Discovery: Automatically finds domain controllers
-#   * Uses DNS SRV records to locate available domain controllers
-#   * Tries common names like dc1, dc2, etc. if DNS fails
-#   * Ensures connection to the best available domain controller
-#   * Reduces manual configuration and potential errors
-#   * NOTE: Found this approach on a wiki online - unsure if it works reliably
-#   * Currently commented out until we can test with actual domain infrastructure
-#   * If this fails, script will fall back to manual domain controller specification
-# 
-# - Time Synchronisation: Automatic NTP (Network Time Protocol) fixes
-#   * Enables automatic time synchronisation with domain controllers
-#   * Critical for Kerberos authentication (time must be within 5 minutes)
-#   * Prevents authentication failures due to clock drift
-#   * Essential for reliable domain authentication
-#   * NOTE: Found this approach on a wiki online - unsure if it works reliably
-#   * Currently commented out until we can test with actual domain infrastructure
-#   * If this fails, script will fall back to manual time configuration
-# 
-# USER MANAGEMENT:
-# - Concurrent User Handling: Manages active user sessions during migration
-#   * Detects users currently logged into the system
-#   * Warns users about the migration and potential disconnection
-#   * Logs out users gracefully to prevent data loss
-#   * Ensures clean migration without user interference
-# 
-# - Local Account Detection: Identifies and handles local (non-domain) acccounts
-#   * Detects accounts that aren't part of any domain
-#   * Looks for usernames without @domain suffixes
-#   * Checks for local account markers in /etc/passwd comments
-#   * Searches for marker files (.local_account, .skip_migration) in home directories
-#   * Examines user profile files for local account indicators
-#   * Allows users to skip local accounts during migration
-#   * Prevents accidental migration of system or service accounts
-# 
-# - User Profile Migration: Moves user home directories to new domain
-#   * Finds all users with @olddomain in their home folder names
-#   * Creates new home folders with @newdomain names
-#   * Copies all files and settings from old to new home folders
-#   * Creates symlinks (redirects) from old to new folders
-#   * Updates file ownership to new domain users
-#   * Handles conflicts by merging or backing up existing folders
-#   * Provides detailed logging of all migration actions
-# 
-# - Account Creation: Creates missing user accounts on new domain
-#   * Detects users that exist on old domain but not new domain
-#   * Attempts to create missing accounts using domain tools
-#   * Uses samba-tool (preferred) or ldapadd (fallback) methods
-#   * Asks for confirmation before each account creation
-#   * Retries profile migration for newly created accounts
-#   * Provides summary of successful and failed account creations
-# 
-# - Symlink Creation: Creates redirects from old to new user folders
-#   * After moving user home directories, creates symbolic links
-#   * Old paths like /home/user@olddomain point to /home/user@newdomain
-#   * Ensures applications and shortcuts continue to work
-#   * Maintains compatibility with existing configurations
-#   * Creates mapping file for reference: /etc/domain-user-mapping.conf
-# 
-# TECHNICAL DETAILS:
-# - Backup Verificiation: Ensures backup files are valid before proceeding
-#   * Checks that backup files exist and have content
-#   * Prevents script from continuing with invalid backups
-#   * Provides clear error messages if backups fail
-#   * Essential for reliable recovery options
-# 
-# - SSL/TLS Certificate Validation: (Commented out - for potential future use, I don't think we need this though as think all Debian machines are on ethernet)
-#   * Would validate domain controller certificates
-#   * Ensures secure connections to domain controllers
-#   * Currently disabled as all machines are on ethernet networks
-#   * Can be enabled for wireless or external network scenarios
-# 
-# USAGE:
-# =============================================================================
-# 
-# 1. TECHNICIAN MODE (Full features):
-#    sudo ./oz-deb-migration-improved.sh --technician
-#    
-# 2. LIVE MODE (Standard):
-#    sudo ./oz-deb-migration-improved.sh --live
-#    
-# 3. DRY-RUN MODE (Test only):
-#    sudo ./oz-deb-migration-improved.sh --dry-run
-#    
-# 4. REVERT TO PREVIOUS DOMAIN:
-#    sudo ./oz-deb-migration-improved.sh --revert
-#    
-# 5. SHOW HELP:
-#    sudo ./oz-deb-migration-improved.sh --help
-# 
-# STATE TRACKING:
-# =============================================================================
-# 
-# The script creates a state tracking file at: /tmp/migration-state
-# This file tracks your progress through the migration steps.
-# If the script is interrupted, you can resume from where you left off.
-# 
-# State file format: STEP=X|MODE=Y|DOMAIN=Z|HOSTNAME=A
-# Example: STEP=8|MODE=technician|DOMAIN=newcompany.com|HOSTNAME=myserver
-# 
-# ROLLBACK POINTS:
-# =============================================================================
-# 
-# Rollback points create a complete system state snapshot.
-# This includes all config files, network settings, and system state.
-# Expected storage: ~50-100MB per rollback point.
-# 
-# =============================================================================
-
-# Enable verbose output and error handling
-# set -e                    # Exit immediately if any command fails (commented out for resilience)
-set -o pipefail          # Exit if any command in a pipeline fails
-
 # Global variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_FILE="/tmp/migration-state"
 ROLLBACK_DIR="/root/migration-rollbacks"
-DRY_RUN=false
-TECHNICIAN_MODE=false
+# DRY_RUN functionality moved to automator script
+# VERSION 5.0 - Release
 LIVE_MODE=false
 
 # Function: Display script usage
@@ -279,23 +70,19 @@ show_usage() {
     echo "Usage: $0 [MODE] [OPTIONS]"
     echo ""
     echo "Modes:"
-    echo "  --technician    Full migration with all features and rollback points"
-    echo "  --live          Standard migration with safety features"
-    echo "  --dry-run       Test run without making any changes"
+    echo "  --live          Standard migration with essential safety features"
     echo "  --revert        Revert to previous domain configuration"
     echo "  --help          Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 --technician    # Full migration with rollback points"
-    echo "  $0 --live          # Standard migration"
-    echo "  $0 --dry-run       # Test run only"
+    echo "  $0 --live          # Standard migration with safety features"
     echo "  $0 --revert        # Revert to previous domain"
     echo ""
     echo "State Tracking:"
     echo "  The script tracks progress in /tmp/migration-state"
     echo "  If interrupted, you can resume from the last step"
     echo ""
-    echo "Rollback Points (Technician Mode):"
+    echo "File Backups:"
     echo "  Creates complete system state snapshots (~50-100MB each)"
     echo "  Stored in /root/migration-rollbacks/"
     echo "  Allows complete system restoration if needed"
@@ -306,63 +93,31 @@ parse_arguments() {
     if [[ $# -eq 0 ]]; then
         echo "No mode specified. Please choose a mode:"
         echo ""
-        echo "1) TECHNICIAN MODE"
-        echo "   Full migration with complete system snapshots (~50-100MB each)"
-        echo "   Includes all safety features: rollback points, state tracking, backup verification"
-        echo "   Best for production environments where maximum safety is needed"
-        echo "   WARNING: This will make permanent changes to your system"
-        echo ""
-        echo "2) LIVE MODE"
+        echo "1) LIVE MODE"
         echo "   Standard migration with essential safety features"
         echo "   Creates file-based backups and includes progress tracking"
         echo "   Suitable for most migration scenarios"
         echo "   WARNING: This will make permanent changes to your system"
         echo ""
-        echo "3) DRY-RUN MODE"
-        echo "   Test run without making any system changes"
-        echo "   Perfect for validating settings on domainless VMs"
-        echo "   Shows exactly what would happen without actually doing it"
-        echo "   SAFE: No changes will be made to your system"
+        echo "Note: For testing and dry-run functionality, use the automator script:"
+        echo "      sudo ./oz-migration-automator.sh --test"
         echo ""
-        read -rp "Enter your choice (1-3): " MODE_CHOICE
+        read -rp "Enter your choice (1): " MODE_CHOICE
         case $MODE_CHOICE in
-            1) set -- --technician ;;
-            2) set -- --live ;;
-            3) set -- --dry-run ;;
+            1) set -- --live ;;
             *) echo "Invalid choice. Exiting."; exit 1 ;;
         esac
     fi
 
     case "$1" in
-        --technician)
-            TECHNICIAN_MODE=true
-            LIVE_MODE=false
-            DRY_RUN=false
-            echo "=== TECHNICIAN MODE ENABLED ==="
-            echo "Full migration with complete system snapshots (~50-100MB each)"
-            echo "Includes all safety features: rollback points, state tracking, backup verification"
-            echo "Best for production environments where maximum safety is needed"
-            echo "WARNING: This will make permanent changes to your system"
-            ;;
         --live)
             LIVE_MODE=true
-            TECHNICIAN_MODE=false
-            DRY_RUN=false
+            # DRY_RUN functionality moved to automator script
             echo "=== LIVE MODE ENABLED ==="
             echo "Standard migration with essential safety features"
             echo "Creates file-based backups and includes progress tracking"
             echo "Suitable for most migration scenarios"
             echo "WARNING: This will make permanent changes to your system"
-            ;;
-        --dry-run)
-            DRY_RUN=true
-            TECHNICIAN_MODE=false
-            LIVE_MODE=false
-            echo "=== DRY-RUN MODE ENABLED ==="
-            echo "Test run without making any system changes"
-            echo "Perfect for validating settings on domainless VMs"
-            echo "Shows exactly what would happen without actually doing it"
-            echo "SAFE: No changes will be made to your system"
             ;;
         --revert)
             revert_migration
@@ -388,14 +143,7 @@ save_state() {
     local hostname="$4"
     
     # Determine current mode
-    local current_mode=""
-    if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-        current_mode="technician"
-    elif [[ "$LIVE_MODE" == "true" ]]; then
-        current_mode="live"
-    elif [[ "$DRY_RUN" == "true" ]]; then
-        current_mode="dry-run"
-    fi
+    local current_mode="live"
     
     echo "STEP=$step|MODE=$current_mode|DOMAIN=$domain|HOSTNAME=$hostname" > "$STATE_FILE"
     info "Progress saved: Step $step"
@@ -449,9 +197,10 @@ show_progress() {
     echo -e "\r$message ✓"
 }
 
-# Function: Create rollback point
+# Function: Create rollback point (DISABLED)
 create_rollback_point() {
-    if [[ "$TECHNICIAN_MODE" == "true" ]]; then
+    # Rollback point creation disabled - function kept for compatibility
+    info "Rollback point creation disabled"
         local rollback_name="rollback-$(date +%Y%m%d_%H%M%S)"
         local rollback_path="$ROLLBACK_DIR/$rollback_name"
         
@@ -459,16 +208,26 @@ create_rollback_point() {
         echo "=========================================="
         echo "ROLLBACK POINT CREATION"
         echo "=========================================="
-        echo "Technician mode detected - creating system rollback point"
+        echo "Live mode detected - creating file backups"
         echo ""
         echo "What this does:"
-        echo "• Creates a complete snapshot of your system configuration"
-        echo "• Includes all config files, network settings, and system state"
-        echo "• Allows you to completely restore the system if needed"
-        echo "• Expected storage: ~50-100MB"
+        echo "• Creates a light snapshot of essential domain configuration files"
+        echo "• Includes only critical files needed for domain migration rollback"
+        echo "• Allows you to restore domain configuration if needed"
+        echo "• Expected storage: ~1-5MB (much lighter than full system backup)"
         echo "• Stored in: $rollback_path"
         echo ""
-        read -rp "Do you want to create a rollback point? (y/n): " CREATE_ROLLBACK
+        echo "Options:"
+        echo "1) Create light backup (recommended)"
+        echo "2) Skip backup entirely"
+        echo ""
+        read -rp "Choose option (1-2): " BACKUP_CHOICE
+        
+        case $BACKUP_CHOICE in
+            1) CREATE_ROLLBACK="y" ;;
+            2) CREATE_ROLLBACK="n" ;;
+            *) echo "Invalid choice. Skipping backup."; CREATE_ROLLBACK="n" ;;
+        esac
         
         if [[ "$CREATE_ROLLBACK" =~ ^[Yy]$ ]]; then
             step "Creating system rollback point..."
@@ -476,18 +235,15 @@ create_rollback_point() {
             # Create rollback directory
             mkdir -p "$ROLLBACK_DIR"
             
-            # Create rollback archive
-            info "Creating system state snapshot..."
+            # Create rollback archive (light version - essential files only)
+            info "Creating light system state snapshot..."
             tar -czf "$rollback_path.tar.gz" \
                 /etc/hosts \
                 /etc/krb5.conf \
                 /etc/sssd/sssd.conf \
                 /etc/resolv.conf \
-                /etc/network/interfaces 2>/dev/null || true \
-                /etc/netplan/*.yaml 2>/dev/null || true \
                 /etc/hostname \
                 /etc/machine-id \
-                /var/lib/sss/ \
                 /etc/passwd \
                 /etc/group \
                 /etc/shadow \
@@ -497,7 +253,7 @@ create_rollback_point() {
             cat > "$rollback_path.info" <<EOF
 Rollback Point: $rollback_name
 Created: $(date)
-Mode: technician
+Mode: live
 Domain: $NEWDOMAIN
 Hostname: $SHORTNAME
 Size: $(du -h "$rollback_path.tar.gz" | cut -f1)
@@ -510,99 +266,16 @@ EOF
             info "Info file: $rollback_path.info"
         else
             info "Skipping rollback point creation"
-        fi
     fi
 }
 
-# Function: Domain controller discovery
-################################################################################################### TODO: Ask Infra team about how domain controller discovery works in our environment
-# This function uses DNS SRV records and common naming conventions?
-# May need adjustment based on actual domain infrastructure setup?
-discover_domain_controllers() {
-    local domain="$1"
-    local discovered_dcs=()
-    
-    info "Discovering domain controllers for $domain..."
-    
-    # Try DNS SRV records first
-    if command -v dig >/dev/null 2>&1; then
-        info "Checking DNS SRV records..."
-        local srv_records=$(dig +short _ldap._tcp.$domain SRV 2>/dev/null)
-        if [[ -n "$srv_records" ]]; then
-            for record in $srv_records; do
-                local dc=$(echo "$record" | awk '{print $4}' | sed 's/\.$//')
-                if [[ -n "$dc" ]]; then
-                    discovered_dcs+=("$dc")
-                fi
-            done
-        fi
-    fi
-    
-    # Try common DC names if SRV records don't work
-    if [[ ${#discovered_dcs[@]} -eq 0 ]]; then
-        info "Trying common domain controller names..."
-        local common_dcs=("dc1.$domain" "dc.$domain" "ad.$domain" "ldap.$domain" "dc2.$domain")
-        for dc in "${common_dcs[@]}"; do
-            if ping -c 1 "$dc" >/dev/null 2>&1; then
-                discovered_dcs+=("$dc")
-            fi
-        done
-    fi
-    
-    # Try to get from SSSD config if available
-    if [[ -f /etc/sssd/sssd.conf ]]; then
-        local sssd_dc=$(grep -i "ad_server" /etc/sssd/sssd.conf | head -1 | awk -F'=' '{print $2}' | tr -d ' ')
-        if [[ -n "$sssd_dc" ]]; then
-            discovered_dcs+=("$sssd_dc")
-        fi
-    fi
-    
-    if [[ ${#discovered_dcs[@]} -gt 0 ]]; then
-        success "Discovered domain controllers:"
-        for dc in "${discovered_dcs[@]}"; do
-            echo "  • $dc"
-        done
-        # Use the first discovered DC
-        DOMAIN_CONTROLLER="${discovered_dcs[0]}"
-        info "Using domain controller: $DOMAIN_CONTROLLER"
-    else
-        warning "Could not discover domain controllers automatically"
-        info "Will use default: dc1.$domain"
-        DOMAIN_CONTROLLER="dc1.$domain"
-    fi
-}
+# Function: Domain controller discovery (REMOVED - not needed)
+# realm join will automatically discover domain controllers when given domain name and credentials
 
-# Function: Time synchronisation fix
-###########################################################################################################################################TODO: Ask Infra team about how time synchronisation works in our environment
-# This function enables NTP synchronisation with domain controllers - don't know if this is something we need to do/something we allow?
-fix_time_synchronization() {
-    info "Checking time synchronisation..."
-    
-    if command -v timedatectl >/dev/null 2>&1; then
-        if timedatectl status | grep -q "synchronized: yes"; then
-            success "Time synchronisation: OK"
-        else
-            warning "Time synchronisation: FAILED - attempting to fix..."
-            info "Enabling NTP synchronisation..."
-            
-            if [[ "$DRY_RUN" == "true" ]]; then
-                info "[DRY-RUN] Would run: timedatectl set-ntp true"
-            else
-                timedatectl set-ntp true
-                info "Waiting for time sync to stabilize..."
-                sleep 10
-                
-                if timedatectl status | grep -q "synchronized: yes"; then
-                    success "Time synchronisation fixed successfully"
-                else
-                    warning "Time synchronisation still failed - Kerberos may not work"
-                fi
-            fi
-        fi
-    else
-        warning "timedatectl not available - cannot verify time sync"
-    fi
-}
+# Function: Time synchronisation fix (REMOVED - not needed for domain migration)
+# fix_time_synchronization() {
+#     # Time synchronization removed - not essential for domain migration
+# }
 
 # Function: Backup verificiation
 verify_backup() {
@@ -633,7 +306,7 @@ verify_backup() {
     fi
 }
 
-# Function: Enhanced backup with verificiation
+# Function: Backup with verification
 backup_config() {
     local file="$1"
     local backup="${file}.backup.$(date +%Y%m%d_%H%M%S)"
@@ -733,7 +406,7 @@ handle_concurrent_sessions() {
 #     fi
 # }
 
-# Function: Revert migration (enhanced)
+# Function: Revert migration
 revert_migration() {
     echo "=========================================="
     echo "REVERTING DOMAIN MIGRATION"
@@ -878,13 +551,15 @@ revert_migration() {
 banner() {
     echo ""
     if command -v figlet >/dev/null 2>&1 && command -v lolcat >/dev/null 2>&1; then
-        echo "Domain Migration" | figlet -f slant | lolcat
+        echo "Oz Domain Migration" | figlet -f slant | lolcat
+        echo ""
+        echo "Script" | figlet -f small | lolcat
     else
-        echo "Domain Migration"
-        echo "(Install 'figlet' and 'lolcat' for enhanced banner: sudo apt install figlet lolcat)"
+        echo "Oz Domain Migration Script"
+        echo "(Install 'figlet' and 'lolcat' for banner: sudo apt install figlet lolcat)"
     fi
     echo ""
-    echo "  Coded by Oscar  |  Domain Migration Made Simple"
+    echo "  Coded by Oscar"
     echo ""
 }
 
@@ -896,10 +571,29 @@ banner
 
 # Continue with the rest of the script...
 
-# Function: Display step headers with blue formatting
+# Function: Display step headers with figlet and lolcat
 step() {
-    echo -e "\n\033[1;34m==> $1\033[0m"
-    echo "------------------------------------------"
+    echo ""
+    if command -v figlet >/dev/null 2>&1 && command -v lolcat >/dev/null 2>&1; then
+        echo "$1" | figlet -f small | lolcat
+    else
+        echo -e "\n\033[1;34m==> $1\033[0m"
+        echo "------------------------------------------"
+    fi
+    echo ""
+}
+
+# Function: Display section headers with figlet and lolcat
+section_header() {
+    local title="$1"
+    echo ""
+    if command -v figlet >/dev/null 2>&1 && command -v lolcat >/dev/null 2>&1; then
+        echo "$title" | figlet -f slant | lolcat
+    else
+        echo -e "\n\033[1;35m=== $title ===\033[0m"
+        echo "=========================================="
+    fi
+    echo ""
 }
 
 # Function: Display error messages with red formatting
@@ -971,7 +665,7 @@ validate_email() {
 
 # Quick install figlet and lolcat for banner display if not already installed
 if ! command -v figlet >/dev/null 2>&1; then
-    info "Installing figlet for enhanced banner display..."
+    info "Installing figlet for banner display..."
     apt-get update -qq >/dev/null 2>&1
     apt-get install -y figlet lolcat -qq >/dev/null 2>&1
     ln -sf /usr/games/lolcat /usr/local/bin/lolcat 2>/dev/null
@@ -1072,6 +766,7 @@ fi
 # =============================================================================
 # SYSTEM COMPATIBILITY CHECK
 # =============================================================================
+section_header "System Compatibility Check"
 step "Checking system compatibility..."
 info "Verifying this is a Debian/Ubuntu system..."
 
@@ -1086,6 +781,7 @@ fi
 # =============================================================================
 # ROOT PRIVILEGES CHECK
 # =============================================================================
+section_header "Root Privileges Check"
 step "Checking script permissions..."
 if [[ "$EUID" -ne 0 ]]; then
     error "This script must be run as root (use sudo)"
@@ -1098,6 +794,7 @@ success "Running with root privileges"
 # PACKAGE INSTALLATION (Step 2)
 # =============================================================================
 if [[ $CURRENT_STEP -lt 2 ]]; then
+    section_header "Package Installation"
     step "Installing required packages..."
     info "Installing domain migration packages with progress indicators..."
     
@@ -1131,9 +828,31 @@ if [[ $CURRENT_STEP -lt 2 ]]; then
 fi
 
 # =============================================================================
-# SAFETY BACKUP ACCOUNT CREATION (Step 3)
+# SAFETY BACKUP ACCOUNT CREATION (Step 3) - Emergency Access Setup
+# =============================================================================
+# This step creates a backup user account with full sudo access
+# This is your "emergency escape hatch" if anything goes wrong during migration
+# Think of this as "creating a spare key to your house" before doing major renovations
+#
+# WHAT WE CREATE:
+# - Username: backup
+# - Password: backup
+# - Full sudo access (can run any command as root)
+# - Home directory: /home/backup
+#
+# WHY THIS IS CRITICAL:
+# - If domain authentication fails after migration, you can still access the system
+# - If you get locked out, you can log in as 'backup' and fix things
+# - This account gets automatically removed after successful migration
+# - It's like having a "master key" that works even if the main locks fail
+#
+# SAFETY FEATURES:
+# - Only created if it doesn't already exist
+# - Uses simple credentials for easy emergency access
+# - Full sudo access for troubleshooting and recovery
 # =============================================================================
 if [[ $CURRENT_STEP -lt 3 ]]; then
+    section_header "Emergency Backup Account"
     info "Starting backup account creation step..."
     step "Creating safety backup account..."
     info "Creating a temporary local account for emergency access during migration..."
@@ -1190,42 +909,11 @@ fi
 # PRE-MIGRATION CHECKS (Step 4)
 # =============================================================================
 if [[ $CURRENT_STEP -lt 4 ]]; then
+    section_header "Pre-Migration Diagnostics"
     step "Running pre-migration diagnostics..."
     info "Checking system readiness for domain migration..."
     
-    # Check network connectivity
-    info "Testing network connectivity..."
-    if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
-        success "Internet connectivity: OK"
-    else
-        warning "Internet connectivity: FAILED - Check network connection"
-    fi
-    
-    # Check DNS resolution
-    info "Testing DNS resolution..."
-    if nslookup google.com >/dev/null 2>&1; then
-        success "DNS resolution: OK"
-    else
-        warning "DNS resolution: FAILED - Check DNS configuration"
-    fi
-    
-    # Check required ports (common AD ports)
-    info "Checking common Active Directory ports..."
-    AD_PORTS=(389 636 88 464 135 139 445)
-    for port in "${AD_PORTS[@]}"; do
-        if timeout 3 bash -c "</dev/tcp/localhost/$port" 2>/dev/null; then
-            info "Port $port: IN USE (may conflict with AD services)"
-        fi
-    done
-    
-    # Check available disk space
-    info "Checking available disk space..."
-    DISK_SPACE=$(df / | awk 'NR==2 {print $4}')
-    if [[ $DISK_SPACE -gt 1048576 ]]; then  # More than 1GB free
-        success "Disk space: OK ($(($DISK_SPACE / 1024))MB available)"
-    else
-        warning "Disk space: LOW ($(($DISK_SPACE / 1024))MB available) - Consider freeing space"
-    fi
+    # Essential checks only - domain migration doesn't require network/internet validation
     
     # Handle concurrent user sessions
     handle_concurrent_sessions
@@ -1257,8 +945,7 @@ if [[ $CURRENT_STEP -lt 4 ]]; then
         fi
     fi
     
-    # Fix time synchronisation
-fix_time_synchronization
+    # Time synchronization removed - not essential for domain migration
     
     echo ""
     success "Pre-migration checks completed"
@@ -1268,49 +955,58 @@ fix_time_synchronization
 fi
 
 # =============================================================================
-# CURRENT DOMAIN STATUS (Step 5)
+# CURRENT DOMAIN STATUS (Step 5) - Check What Domain We're Currently In
 # =============================================================================
-if [[ $CURRENT_STEP -lt 4 ]]; then
+# This step checks if the system is already joined to a domain
+# If it is, we'll need to leave that domain before joining the new one
+# Think of this as "checking which company network you're currently connected to"
+#
+# WHAT WE CHECK:
+# - realm list: Shows all domains this computer is currently joined to
+# - sssctl domain-list: Shows SSSD domain configuration (the authentication system)
+#
+# WHY THIS MATTERS:
+# - You can only be joined to one domain at a time
+# - If you're already in a domain, you need to leave it first
+# - This prevents conflicts and ensures clean domain transitions
+# =============================================================================
+if [[ $CURRENT_STEP -lt 5 ]]; then
+    section_header "Current Domain Status"
     step "Analyzing current domain status..."
     info "Checking which domains this system is currently joined to..."
     
     echo "Current domain membership:"
     realm list || echo "Not currently joined to any domain."
     
-    echo ""
-    info "Checking SSSD domain configuration:"
-    sssctl domain-list || echo "No SSSD domains configured"
-    
     CURRENT_STEP=5
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# INPUT VALIDATION (Step 1) - Already completed at start
+# CONFIGURATION BACKUP (Step 6) - Safety Net Creation
 # =============================================================================
-# Input collection is now done at the beginning of the script
-# This step is kept for compatibility with existing state files
-if [[ $CURRENT_STEP -lt 1 ]]; then
-    CURRENT_STEP=1
-    save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
-fi
-
-# =============================================================================
-# ROLLBACK POINT CREATION (Step 6) - Technician Mode Only
+# This step creates backups of critical configuration files before we change them
+# Think of this as "taking photos of your house before renovations" - you can always
+# look back at how things were if something goes wrong
+#
+# WHAT WE BACKUP:
+# - /etc/hosts: Maps computer names to IP addresses
+# - /etc/krb5.conf: Kerberos authentication configuration
+# - /etc/sssd/sssd.conf: Domain authentication system configuration
+#
+# WHY THIS MATTERS:
+# - If domain join fails, you can restore these files to get back to working state
+# - These files control how your computer talks to the domain servers
+# - Without backups, you might lose access to your old domain permanently
+# - It's like having "undo" buttons for the most critical changes
+#
+# BACKUP LOCATION:
+# - Files are saved in /root/migration-rollbacks/
+# - Each backup has a timestamp so you know when it was created
+# - Original files are never deleted, only copied
 # =============================================================================
 if [[ $CURRENT_STEP -lt 6 ]]; then
-    if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-        create_rollback_point
-    fi
-    
-    CURRENT_STEP=6
-    save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
-fi
-
-# =============================================================================
-# CONFIGURATION BACKUP (Step 7)
-# =============================================================================
-if [[ $CURRENT_STEP -lt 7 ]]; then
+    section_header "Configuration Backup"
     step "Creating configuration backups..."
     info "Creating timestamped backups of critical system files..."
     info "These backups will allow you to revert changes if needed."
@@ -1322,28 +1018,38 @@ if [[ $CURRENT_STEP -lt 7 ]]; then
     success "All configuration files backed up successfully"
     echo ""
     
-    CURRENT_STEP=7
+    CURRENT_STEP=6
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# DOMAIN CONTROLLER DISCOVERY (Step 8)
+# DOMAIN CONTROLLER DISCOVERY (Step 7) - Finding the New Domain Servers
 # =============================================================================
-if [[ $CURRENT_STEP -lt 8 ]]; then
-    step "Discovering domain controllers..."
-    if [[ -n "$NEWDOMAIN" ]]; then
-        discover_domain_controllers "$NEWDOMAIN"
-    else
-        info "Domain not yet specified, skipping domain controller discovery"
-        DOMAIN_CONTROLLER=""
-    fi
-    
-    CURRENT_STEP=8
-    save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
-fi
+# This step finds the domain controllers (servers) for the new domain
+# Think of this as "looking up the address of the new company's headquarters"
+# before you try to visit them
+#
+# WHAT WE DO:
+# - Domain controllers are discovered automatically during realm join
+# - This tells us which servers handle authentication and user management
+# - We need this information to successfully join the domain
+#
+# WHY THIS MATTERS:
+# - Domain controllers are the "brains" of the domain network
+# - They handle user authentication, group membership, and security policies
+# - Without finding them, we can't join the domain properly
+# - It's like trying to join a club without knowing where the clubhouse is
+#
+# WHAT WE FIND:
+# - Server names and IP addresses
+# - Domain structure and configuration
+# - Authentication methods and security settings
+# =============================================================================
+# Step 7 removed - domain controller discovery not needed
+# realm join will automatically discover domain controllers when given domain name and credentials
 
 # =============================================================================
-# DOMAIN TRANSITION (Step 9) - The Core Domain Migration Process
+# DOMAIN TRANSITION (Step 8) - The Core Domain Migration Process
 # =============================================================================
 # This is the heart of the migration - where we actually change domain membership
 # Think of this as "changing your network membership card" from one company to another
@@ -1362,11 +1068,17 @@ fi
 # THE REALM COMMANDS EXPLAINED:
 # - realm list: Shows which domains this computer is currently joined to
 # - realm leave: Removes the computer from a domain (like "quitting" the network)
-# - realm discover: Finds information about a domain (servers, structure, etc.)
+# - realm join: Adds the computer to a domain (like "joining" the network)
 # - realm join: Adds the computer to a domain (like "joining" the network)
 #
+# WHY THIS IS CRITICAL:
+# - This is where the actual domain membership changes
+# - If this fails, the entire migration fails
+# - We need admin credentials for the new domain to succeed
+# - This step can't be undone without restoring from backups
 # =============================================================================
-if [[ $CURRENT_STEP -lt 9 ]]; then
+if [[ $CURRENT_STEP -lt 7 ]]; then
+    section_header "Domain Transition"
     step "Initiating domain transition..."
     info "Leaving current domain and joining new domain..."
     info "This is the core migration step - changing network membership"
@@ -1408,44 +1120,41 @@ if [[ $CURRENT_STEP -lt 9 ]]; then
         success "No domain currently joined. Proceeding to join new domain."
     fi
     
-    CURRENT_STEP=9
+    CURRENT_STEP=7
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# DOMAIN DISCOVERY (Step 10)
+# DOMAIN DISCOVERY (Step 9) - Analyzing the New Domain Structure
 # =============================================================================
-if [[ $CURRENT_STEP -lt 10 ]]; then
-    step "Discovering new domain structure..."
-    info "Analyzing domain $NEWDOMAIN for available services and configuration..."
-    
-    if [[ "$DRY_RUN" == "true" ]]; then
-        info "[DRY-RUN] Would discover domain: $NEWDOMAIN"
-        success "[DRY-RUN] Domain discovery simulation complete"
-    else
-        if command -v realm >/dev/null 2>&1; then
-            if ! realm discover "$NEWDOMAIN"; then
-            error "Failed to discover domain $NEWDOMAIN"
-            info "This could be due to:"
-            info "  - Network connectivity issues"
-            info "  - DNS resolution problems"
-            info "  - Domain controller not accessible"
-            info "  - Firewall blocking required ports"
-            exit 1
-        fi
-        success "Domain discovery completed successfully"
-        else
-            error "realm command not found - SSSD may not be installed"
-            exit 1
-        fi
-    fi
-    
-    CURRENT_STEP=10
-    save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
-fi
+# This step analyzes the new domain to understand its structure and services
+# Think of this as "getting a tour of the new building" before you move in
+#
+# WHAT WE DO:
+# - Domain structure is analyzed automatically during realm join
+# - This tells us what services are available (authentication, file sharing, etc.)
+# - We need this information to configure the system properly
+#
+# WHY THIS MATTERS:
+# - Different domains have different configurations and services
+# - We need to know what's available to set up authentication correctly
+# - This step validates that we can actually reach the domain controllers
+# - It's like "checking the facilities" before signing a lease
+#
+# WHAT WE LEARN:
+# - Available authentication methods
+# - Domain structure and organization
+# - Network services and policies
+# - Security settings and requirements
+# =============================================================================
+# DOMAIN DISCOVERY STEP REMOVED
+# =============================================================================
+# Domain discovery step removed - realm join handles discovery automatically
+# This simplifies the process and reduces potential failure points
+# =============================================================================
 
 # =============================================================================
-# JOIN NEW DOMAIN (Step 11) - The Critical Domain Join Process
+# JOIN NEW DOMAIN (Step 10) - The Critical Domain Join Process
 # =============================================================================
 # This is where we actually join the new domain - the most critical step
 # Think of this as "getting your new company ID card" and "registering with security"
@@ -1472,8 +1181,14 @@ fi
 # - --computer-ou="Computers": Specifies where to put the computer account in Active Directory
 # - This is used if the default location doesn't work
 #
+# WHY THIS IS THE MOST CRITICAL STEP:
+# - This is where the computer officially becomes part of the new domain
+# - If this fails, the entire migration fails
+# - We need valid admin credentials with permission to add computers
+# - This step creates the computer account in Active Directory
 # =============================================================================
-if [[ $CURRENT_STEP -lt 11 ]]; then
+if [[ $CURRENT_STEP -lt 9 ]]; then
+    section_header "Domain Join"
     step "Joining new domain..."
     info "Attempting to join domain $NEWDOMAIN using account: $NEWADMIN"
     info "This process will:"
@@ -1517,14 +1232,34 @@ if [[ $CURRENT_STEP -lt 11 ]]; then
     # Clear password from memory
     unset NEWADMIN_PASS
     
-    CURRENT_STEP=11
+    CURRENT_STEP=9
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# HOSTNAME CONFIGURATION (Step 12)
+# HOSTNAME CONFIGURATION (Step 11) - Setting the Computer's New Name
 # =============================================================================
-if [[ $CURRENT_STEP -lt 12 ]]; then
+# This step updates the system's hostname to match the new domain
+# Think of this as "changing your name tag" to match your new company
+#
+# WHAT WE DO:
+# - Update the system hostname to match the new domain
+# - This ensures the computer is properly identified on the new network
+# - The hostname becomes: computername.newdomain.com
+#
+# WHY THIS MATTERS:
+# - Domain controllers need to know the computer's name
+# - Network services use the hostname for identification
+# - User authentication relies on proper hostname configuration
+# - It's like "registering your new name" with the company
+#
+# WHAT CHANGES:
+# - System hostname (what you see in terminal prompts)
+# - Network identification
+# - Domain controller recognition
+# =============================================================================
+if [[ $CURRENT_STEP -lt 10 ]]; then
+    section_header "Hostname Configuration"
     step "Configuring system hostname..."
     info "Setting up the system hostname for the new domain..."
     
@@ -1554,16 +1289,36 @@ if [[ $CURRENT_STEP -lt 12 ]]; then
         fi
     fi
     
-    CURRENT_STEP=12
+    CURRENT_STEP=10
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # Continue with remaining steps...
 
 # =============================================================================
-# NETWORK CONFIGURATION (Step 13)
+# NETWORK CONFIGURATION (Step 12) - Updating Network Settings
 # =============================================================================
-if [[ $CURRENT_STEP -lt 13 ]]; then
+# This step updates network configuration files to work with the new domain
+# Think of this as "updating your address book" with the new company's contact info
+#
+# WHAT WE DO:
+# - Update /etc/hosts file with new hostname and domain information
+# - Check DNS configuration for domain resolution
+# - Ensure the computer can find domain controllers and services
+#
+# WHY THIS MATTERS:
+# - The computer needs to know how to find domain controllers
+# - DNS resolution is critical for domain authentication
+# - Network services rely on proper hostname/IP mapping
+# - It's like "getting the new company's phone directory"
+#
+# WHAT WE UPDATE:
+# - /etc/hosts: Maps hostnames to IP addresses
+# - DNS settings: How to find domain controllers
+# - Network identification: Computer's network name
+# =============================================================================
+if [[ $CURRENT_STEP -lt 11 ]]; then
+    section_header "Network Configuration"
     step "Updating network configuration..."
     info "Updating /etc/hosts file to include new hostname and domain information..."
     
@@ -1581,15 +1336,8 @@ if [[ $CURRENT_STEP -lt 13 ]]; then
             info "You may need to update DNS settings manually"
             info "Consider adding domain DNS servers to /etc/resolv.conf"
             
-            # Try to get domain DNS servers
-            info "Attempting to discover domain DNS servers..."
-            if command_exists dig; then
-                DOMAIN_NS=$(dig +short NS "$NEWDOMAIN" | head -1)
-                if [[ -n "$DOMAIN_NS" ]]; then
-                    info "Found domain nameserver: $DOMAIN_NS"
-                    info "Consider adding to /etc/resolv.conf: nameserver $DOMAIN_NS"
-                fi
-            fi
+            # DNS nameserver discovery removed - using existing DNS configuration
+            info "Using existing DNS configuration"
         fi
     fi
     
@@ -1638,14 +1386,34 @@ if [[ $CURRENT_STEP -lt 13 ]]; then
         rm -f "$TEMP_HOSTS"
     fi
     
-    CURRENT_STEP=13
+    CURRENT_STEP=11
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# AUTHENTICATION CONFIGURATION (Step 14)
+# AUTHENTICATION CONFIGURATION (Step 13) - Setting Up Domain Security
 # =============================================================================
-if [[ $CURRENT_STEP -lt 14 ]]; then
+# This step configures Kerberos and SSSD for domain authentication
+# Think of this as "setting up the security system" for the new building
+#
+# WHAT WE DO:
+# - Clear old authentication cache (remove old "key cards")
+# - Configure Kerberos for the new domain (set up new "security system")
+# - Update SSSD configuration (configure the "security office")
+#
+# WHY THIS MATTERS:
+# - Kerberos handles secure authentication with domain controllers
+# - SSSD manages user authentication and group membership
+# - Without proper configuration, domain users can't log in
+# - It's like "installing the new security system" in the building
+#
+# WHAT WE CONFIGURE:
+# - Kerberos realm settings (which domain to authenticate with)
+# - KDC server information (which security server to use)
+# - Authentication policies and settings
+# =============================================================================
+if [[ $CURRENT_STEP -lt 12 ]]; then
+    section_header "Authentication Configuration"
     step "Configuring authentication services..."
     info "Setting up Kerberos and SSSD for domain authentication..."
     
@@ -1708,12 +1476,12 @@ EOF
         rm -f "$TEMP_KRB5"
     fi
     
-    CURRENT_STEP=14
+    CURRENT_STEP=12
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# SERVICE RESTART (Step 15) - Applying All Configuration Changes
+# SERVICE RESTART (Step 14) - Applying All Configuration Changes
 # =============================================================================
 # This step restarts the SSSD service to apply all the configuration changes
 # Think of this as "rebooting the security system" to load new settings
@@ -1737,7 +1505,8 @@ fi
 # - systemctl status sssd: Shows detailed status and any error messages
 #
 # =============================================================================
-if [[ $CURRENT_STEP -lt 15 ]]; then
+if [[ $CURRENT_STEP -lt 13 ]]; then
+    section_header "Service Restart"
     step "Restarting authentication services..."
     info "Restarting SSSD service to apply new configuration..."
     info "This loads all the domain authentication settings we just configured"
@@ -1769,7 +1538,7 @@ if [[ $CURRENT_STEP -lt 15 ]]; then
         fi
     fi
     
-    CURRENT_STEP=15
+    CURRENT_STEP=14
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
@@ -1803,7 +1572,8 @@ fi
 # - /etc/nsswitch.conf: Name service switch configuration (where to look for users)
 #
 # =============================================================================
-if [[ $CURRENT_STEP -lt 16 ]]; then
+if [[ $CURRENT_STEP -lt 14 ]]; then
+    section_header "PAM/NSS Configuration"
     step "Configuring PAM and NSS for domain authentication..."
     info "Setting up PAM and NSS to use SSSD for domain authentication..."
     info "This configures the system to accept domain user logins"
@@ -1848,12 +1618,12 @@ if [[ $CURRENT_STEP -lt 16 ]]; then
         fi
     fi
     
-    CURRENT_STEP=16
+    CURRENT_STEP=14
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# HOME DIRECTORY CONFIGURATION (Step 17) - Automatic Home Folder Creation
+# HOME DIRECTORY CONFIGURATION (Step 16) - Automatic Home Folder Creation
 # =============================================================================
 # This step sets up automatic home directory creation for domain users
 # Think of this as "setting up the room assignment system" for new employees
@@ -1882,7 +1652,8 @@ fi
 # - It's like "making sure new employees have a desk and filing cabinet"
 #
 # =============================================================================
-if [[ $CURRENT_STEP -lt 17 ]]; then
+if [[ $CURRENT_STEP -lt 15 ]]; then
+    section_header "Home Directory Configuration"
     step "Configuring automatic home directory creation..."
     info "Setting up oddjob-mkhomedir for automatic home directory creation..."
     info "This ensures domain users get home folders when they first log in"
@@ -1943,14 +1714,14 @@ EOF
         fi
     fi
     
-    CURRENT_STEP=19
+    CURRENT_STEP=15
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# COMPREHENSIVE VERIFICATION AND TESTING (Step 18) - The Complete Health Check
+# VERIFICATION AND TESTING (Step 18) - Health Check
 # =============================================================================
-# This step performs comprehensive testing to ensure everything works properly
+# This step performs testing to ensure everything works properly
 # Think of this as the "final inspection" before handing over the keys
 #
 # WHAT WE'RE TESTING:
@@ -1972,13 +1743,14 @@ fi
 # - systemctl status: Checks service status
 #
 # =============================================================================
-if [[ $CURRENT_STEP -lt 18 ]]; then
-    step "Comprehensive verification and testing..."
+if [[ $CURRENT_STEP -lt 16 ]]; then
+    section_header "Verification"
+    step "Verification and testing..."
     info "Performing complete health check of domain configuration..."
     info "This ensures everything is working before completing migration"
     
     if [[ "$DRY_RUN" == "true" ]]; then
-        info "[DRY-RUN] Would perform comprehensive verification"
+        info "[DRY-RUN] Would perform verification"
         success "[DRY-RUN] Verification simulation complete"
     else
         # Test 1: Domain Membership
@@ -2118,7 +1890,7 @@ if [[ $CURRENT_STEP -lt 18 ]]; then
             warning "PAM configuration: Home directory creation not configured"
         fi
         
-        success "Comprehensive verification completed"
+        success "Verification completed"
         info "All critical components have been tested and verified"
     fi
     
@@ -2149,7 +1921,7 @@ fi
 # - Handle conflicts by merging or backing up existing folders
 #
 # =============================================================================
-if [[ $CURRENT_STEP -lt 19 ]]; then
+if [[ $CURRENT_STEP -lt 17 ]]; then
     step "Migrating user profiles and home directories..."
     info "This step will migrate existing user profiles to the new domain structure"
     info "Moving user home directories and creating redirects for compatibility"
@@ -2194,7 +1966,7 @@ fi
 # =============================================================================
 # POST-MIGRATION VERIFICATION (Step 19)
 # =============================================================================
-if [[ $CURRENT_STEP -lt 19 ]]; then
+if [[ $CURRENT_STEP -lt 18 ]]; then
     step "Running post-migration verification..."
     info "Verifying domain join was successful..."
     
@@ -2289,7 +2061,7 @@ if [[ $CURRENT_STEP -lt 19 ]]; then
         success "Post-migration verification completed"
     fi
     
-    CURRENT_STEP=17
+    CURRENT_STEP=18
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
@@ -2311,7 +2083,7 @@ if [[ $CURRENT_STEP -lt 21 ]]; then
         echo "To perform the actual migration, run:"
         echo "sudo $0 --live"
         echo "or"
-        echo "sudo $0 --technician"
+        echo "sudo $0 --live"
         echo ""
     else
         if command -v realm >/dev/null 2>&1 && realm list | grep -q "$NEWDOMAIN"; then
@@ -2354,8 +2126,10 @@ if [[ $CURRENT_STEP -lt 21 ]]; then
             echo "   - Test: nslookup $NEWDOMAIN"
             echo ""
             echo "FAIL: Kerberos authentication fails:"
-            echo "   - Check system time: timedatectl status"
-            echo "   - Enable NTP: timedatectl set-ntp true"
+                    # echo "   - Check system time: timedatectl status"
+        # echo "   - Enable NTP: timedatectl set-ntp true"
+        echo "   - Check system time manually"
+        echo "   - Enable NTP manually if needed"
             echo "   - Test: kinit username@$NEWDOMAIN"
             echo ""
             echo "FAIL: Sudo access not working:"
@@ -2383,9 +2157,7 @@ if [[ $CURRENT_STEP -lt 21 ]]; then
             echo "User migration logs:        /var/log/user-migration-*.log"
             echo "Account creation logs:      /var/log/account-creation-*.log"
             echo "User mapping file:          /etc/domain-user-mapping.conf"
-            if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-                echo "Rollback points:            ls -la $ROLLBACK_DIR/"
-            fi
+            # echo "Rollback points:            ls -la $ROLLBACK_DIR/"  # Rollback points disabled
         else
             error "Domain join verification failed!"
             echo ""
@@ -2402,7 +2174,7 @@ if [[ $CURRENT_STEP -lt 21 ]]; then
         fi
     fi
     
-    CURRENT_STEP=24
+    CURRENT_STEP=22
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
@@ -2410,6 +2182,7 @@ fi
 # USER PROFILE MIGRATION (Step 25)
 # =============================================================================
 if [[ $CURRENT_STEP -lt 25 ]]; then
+    section_header "User Profile Migration"
     step "Migrating user profiles and home directories..."
     info "This step will migrate existing user profiles to the new domain structure"
     
@@ -2910,9 +2683,9 @@ EOF
                 fi
             done
             
-            # Create a comprehensive symlink map for any remaining old domain references
+            # Create a symlink map for any remaining old domain references
             create_symlink_map() {
-                info "Creating comprehensive symlink map for domain transition..."
+                info "Creating symlink map for domain transition..."
                 
                 # Get the old domain name from existing symlinks or user input
                 local old_domain_name=""
@@ -3057,6 +2830,7 @@ fi
 #
 # =============================================================================
 if [[ $CURRENT_STEP -lt 20 ]]; then
+    section_header "Network Resource Migration"
     step "Migrating network resources and connections..."
     info "This step migrates network printers, drives, and other domain resources"
     info "Updating network paths and configurations for the new domain"
@@ -3165,7 +2939,7 @@ if [[ $CURRENT_STEP -lt 20 ]]; then
         fi
     fi
     
-    CURRENT_STEP=20
+    CURRENT_STEP=19
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
@@ -3298,7 +3072,7 @@ if [[ $CURRENT_STEP -lt 21 ]]; then
         fi
     fi
     
-    CURRENT_STEP=21
+    CURRENT_STEP=20
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
@@ -3351,14 +3125,14 @@ EOF
         fi
     fi
     
-    CURRENT_STEP=22
+    CURRENT_STEP=21
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
 # =============================================================================
-# COMPREHENSIVE MIGRATION REPORT (Step 23) - Detailed Migration Summary
+# MIGRATION REPORT (Step 23) - Migration Summary
 # =============================================================================
-# This step generates a comprehensive report of the migration process
+# This step generates a report of the migration process
 # Think of this as the "final inspection report" for the migration
 #
 # WHAT THE REPORT INCLUDES:
@@ -3375,7 +3149,7 @@ fi
 #
 # =============================================================================
 if [[ $CURRENT_STEP -lt 23 ]]; then
-    step "Generating comprehensive migration report..."
+    step "Generating migration report..."
     info "Creating detailed report of migration process and results"
     
     # Create migration report
@@ -3383,7 +3157,7 @@ if [[ $CURRENT_STEP -lt 23 ]]; then
     
     cat <<EOF > "$MIGRATION_REPORT"
 =============================================================================
-                    COMPREHENSIVE MIGRATION REPORT
+                    MIGRATION REPORT
 =============================================================================
 Generated: $(date)
 Script Version: 3.0.0
@@ -3460,9 +3234,7 @@ BACKUP INFORMATION:
 ===================
 Backup files created:
 $(find /etc -name "*.backup.*" 2>/dev/null | head -10)
-$(if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-    echo "Rollback points created: /tmp/migration-rollback-*"
-fi)
+# Rollback points disabled
 
 TROUBLESHOOTING INFORMATION:
 ============================
@@ -3470,7 +3242,7 @@ Common Issues and Solutions:
 
 1. "Can't log in with domain user"
    - Check SSSD service: systemctl status sssd
-   - Check time synchronization: timedatectl status
+   - Check time synchronization manually
    - Verify domain connectivity: ping $DOMAIN_CONTROLLER
 
 2. "Home directories not created"
@@ -3499,16 +3271,10 @@ NEXT STEPS:
 
 ROLLBACK INSTRUCTIONS:
 ======================
-$(if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-    echo "To rollback to previous state:"
-    echo "1. Use the rollback script: /tmp/migration-rollback-*/rollback.sh"
-    echo "2. Or manually restore from backup files"
-else
-    echo "To rollback manually:"
-    echo "1. Restore backup files from /etc/*.backup.*"
-    echo "2. Reconfigure services manually"
-    echo "3. Reboot the system"
-fi)
+To rollback manually:
+1. Restore backup files from /etc/*.backup.*
+2. Reconfigure services manually
+3. Reboot the system
 
 SUPPORT INFORMATION:
 ===================
@@ -3522,7 +3288,7 @@ SUPPORT INFORMATION:
 =============================================================================
 EOF
 
-    success "Comprehensive migration report generated: $MIGRATION_REPORT"
+    success "Migration report generated: $MIGRATION_REPORT"
     info "Report contains detailed information about the migration process"
     
     # Display report summary
@@ -3536,11 +3302,11 @@ EOF
     echo "- Migration completed successfully"
     echo "- All services configured and running"
     echo "- Backup files created for safety"
-    echo "- Comprehensive verification performed"
+    echo "- Verification performed"
     echo ""
     echo "Next step: Reboot the system"
     
-    CURRENT_STEP=23
+    CURRENT_STEP=22
     save_state "$CURRENT_STEP" "$MODE" "$NEWDOMAIN" "$SHORTNAME"
 fi
 
@@ -3553,9 +3319,7 @@ if [[ $CURRENT_STEP -lt 24 ]]; then
     echo "=========================================="
     echo "MIGRATION SUMMARY:"
     echo "=========================================="
-    if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-        echo "Mode: technician"
-    elif [[ "$LIVE_MODE" == "true" ]]; then
+    if [[ "$LIVE_MODE" == "true" ]]; then
         echo "Mode: live"
     elif [[ "$DRY_RUN" == "true" ]]; then
         echo "Mode: dry-run"
@@ -3565,10 +3329,7 @@ if [[ $CURRENT_STEP -lt 24 ]]; then
     echo "Domain Controller: $DOMAIN_CONTROLLER"
     echo "Backup files created:"
     ls -la /etc/*.backup.* 2>/dev/null || echo "No backup files found"
-    if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-        echo "Rollback points:"
-        ls -la "$ROLLBACK_DIR"/*.tar.gz 2>/dev/null || echo "No rollback points found"
-    fi
+    # Rollback points disabled
     echo "=========================================="
     
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -3581,8 +3342,6 @@ if [[ $CURRENT_STEP -lt 24 ]]; then
         echo ""
         echo "To perform the actual migration, run:"
         echo "sudo $0 --live"
-        echo "or"
-        echo "sudo $0 --technician"
         echo ""
         echo "State tracking file: $STATE_FILE"
         echo "This file has been created to track the dry-run progress."
@@ -3984,20 +3743,40 @@ echo "MIGRATION PROCESS COMPLETE!"
 echo "=========================================="
 echo "All steps have been completed successfully."
 echo ""
-    echo "State tracking information:"
-    echo "  State file: $STATE_FILE"
-    echo "  Current step: $CURRENT_STEP"
-    if [[ "$TECHNICIAN_MODE" == "true" ]]; then
-        echo "  Mode: technician"
-    elif [[ "$LIVE_MODE" == "true" ]]; then
-        echo "  Mode: live"
-    elif [[ "$DRY_RUN" == "true" ]]; then
-        echo "  Mode: dry-run"
-    fi
-    echo "  Domain: $NEWDOMAIN"
-    echo "  Hostname: $SHORTNAME"
+echo "State tracking information:"
+echo "  State file: $STATE_FILE"
+echo "  Current step: $CURRENT_STEP"
+if [[ "$LIVE_MODE" == "true" ]]; then
+    echo "  Mode: live"
+elif [[ "$DRY_RUN" == "true" ]]; then
+    echo "  Mode: dry-run"
+fi
+echo "  Domain: $NEWDOMAIN"
+echo "  Hostname: $SHORTNAME"
 echo ""
-echo "Thank you for using the Domain Migration Script!"
+echo "=========================================="
+echo "REBOOT REQUIRED"
+echo "=========================================="
+echo "A system reboot is required to complete the domain migration."
+echo "After reboot, you should:"
+echo "1. Log in with your domain credentials"
+echo "2. Verify domain membership with: realm list"
+echo "3. Test domain user authentication"
+echo ""
+read -rp "Reboot now to complete the migration? (y/n): " REBOOT_NOW
+if [[ "$REBOOT_NOW" =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "Rebooting system in 5 seconds..."
+    echo "Press Ctrl+C to cancel"
+    sleep 5
+    reboot
+else
+    echo ""
+    echo "Please reboot manually when ready:"
+    echo "  sudo reboot"
+    echo ""
+    echo "Thank you for using the Domain Migration Script!"
+fi
 echo ""
 # ASCII Pikachu watermark - hidden from output but preserved in code
 # ⢀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀

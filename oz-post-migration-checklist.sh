@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Occie's Post-Migration Verification Script :)
+# Oz's Post-Migration Verification Script :)
 # =============================================================================
 # 
 # README - POST-MIGRATION VERIFICATION
@@ -63,7 +63,7 @@
 # =============================================================================
 # 
 # Features:
-# - Comprehensive post-migration verification
+# - Post-migration verification
 # - Detailed troubleshooting guidance
 # - Log analysis and error detection
 # - Network and service health checks
@@ -597,8 +597,8 @@ echo "   - Verify DNS server settings"
 echo "   - Test: nslookup $CURRENT_DOMAIN"
 echo ""
 echo "FAIL: Kerberos authentication fails:"
-echo "   - Check system time: timedatectl status"
-echo "   - Enable NTP: timedatectl set-ntp true"
+echo "   - Check system time manually"
+echo "   - Enable NTP manually if needed"
 echo "   - Test: kinit username@$CURRENT_DOMAIN"
 echo ""
 echo "FAIL: Sudo access not working:"
