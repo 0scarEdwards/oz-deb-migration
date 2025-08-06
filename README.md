@@ -1,4 +1,7 @@
-# Oz Domain Migration Script
+# Oz Domain Migration Script README\Project Outline #
+
+-some details in readme and example-demo.md still need updating to reflect exact current version, bear with on that :)
+
 
 A comprehensive Debian system migration tool for transitioning between Active Directory domains. This script handles the complete process of leaving an old domain and joining a new one, including user profile migration and system configuration management.
 
